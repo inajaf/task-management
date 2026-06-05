@@ -5,12 +5,24 @@ import (
 	"fmt"
 	"github.com/devenairevo/task-management/internal/types"
 	"github.com/devenairevo/task-management/internal/user"
+	"sync"
 )
 
 type Task struct {
 	ID     int          `json:"id"`
 	Name   string       `json:"name"`
 	Status types.Status `json:"status"`
+}
+
+func (t *Task) Clone() *Task {
+	if t == nil {
+		return nil
+	}
+	return &Task{
+		ID:     t.ID,
+		Name:   t.Name,
+		Status: t.Status,
+	}
 }
 
 type CreateTaskParams struct {
@@ -26,7 +38,6 @@ func NewTask(id int, name string, status types.Status) (*Task, error) {
 	}
 
 	return nil, errors.New("something wrong with creating a new task")
-
 }
 
 func (lt *LocalTaskManager) CreateTask(params *CreateTaskParams) (*Task, error) {
@@ -51,7 +62,7 @@ func (lt *LocalTaskManager) CreateTask(params *CreateTaskParams) (*Task, error) 
 
 	lt.AddTask(userTask)
 
-	return task, nil
+	return task.Clone(), nil
 }
 
 func NewUserTask(user *user.User, task *Task) (*UserTask, error) {
@@ -65,27 +76,34 @@ func NewUserTask(user *user.User, task *Task) (*UserTask, error) {
 }
 
 type LocalTaskManager struct {
-	UserTasks []*UserTask
+	mu        sync.RWMutex
+	userTasks map[int]*UserTask
 }
 
 func NewLocalTaskManager() *LocalTaskManager {
 	return &LocalTaskManager{
-		UserTasks: []*UserTask{},
+		userTasks: make(map[int]*UserTask),
 	}
 }
 
 func (lt *LocalTaskManager) AddTask(userTasks ...*UserTask) {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
 	for _, v := range userTasks {
-		lt.UserTasks = append(lt.UserTasks, v)
+		if v != nil && v.Task != nil {
+			lt.userTasks[v.Task.ID] = v
+		}
 	}
 }
 
 func (lt *LocalTaskManager) GetUserTasks(userID int) []*Task {
+	lt.mu.RLock()
+	defer lt.mu.RUnlock()
 	var userTasks []*Task
 
-	for _, userTask := range lt.UserTasks {
+	for _, userTask := range lt.userTasks {
 		if userTask.User.ID == userID {
-			userTasks = append(userTasks, userTask.Task)
+			userTasks = append(userTasks, userTask.Task.Clone())
 		}
 	}
 
@@ -93,24 +111,27 @@ func (lt *LocalTaskManager) GetUserTasks(userID int) []*Task {
 }
 
 func (lt *LocalTaskManager) DescribeTask(taskID int) (*Task, error) {
-	for _, userTask := range lt.UserTasks {
-		if userTask.Task.ID == taskID {
-			return userTask.Task, nil
-		}
+	lt.mu.RLock()
+	defer lt.mu.RUnlock()
+	userTask, exists := lt.userTasks[taskID]
+	if !exists {
+		return nil, fmt.Errorf("❌  Task with ID %d not found", taskID)
 	}
 
-	return nil, fmt.Errorf("❌  Task with ID %d not found", taskID)
+	return userTask.Task.Clone(), nil
 }
 
 func (lt *LocalTaskManager) ListTasks() ([]*Task, error) {
-	if len(lt.UserTasks) == 0 {
+	lt.mu.RLock()
+	defer lt.mu.RUnlock()
+	if len(lt.userTasks) == 0 {
 		return nil, errors.New("no tasks found")
 	}
 
 	var tasks []*Task
-	for _, userTask := range lt.UserTasks {
+	for _, userTask := range lt.userTasks {
 		if userTask.Task != nil {
-			tasks = append(tasks, userTask.Task)
+			tasks = append(tasks, userTask.Task.Clone())
 		}
 	}
 
@@ -121,7 +142,16 @@ func (lt *LocalTaskManager) UpdateTask(task *Task) error {
 	if task == nil || task.ID < 0 {
 		return errors.New("no task found")
 	}
-	task.Status = types.Updated
+
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
+	userTask, exists := lt.userTasks[task.ID]
+	if !exists {
+		return fmt.Errorf("task with ID %d not found", task.ID)
+	}
+
+	userTask.Task.Status = task.Status
+	userTask.Task.Name = task.Name
 
 	return nil
 }

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/devenairevo/task-management/internal/task"
-	"github.com/devenairevo/task-management/internal/types"
 	"sync"
 )
 
@@ -35,12 +34,7 @@ func (c *Channel) Enqueue(task *task.Task) error {
 	c.wg.Add(1)
 	c.chanel <- task
 
-	task.Status = types.Created
-	fmt.Printf("Task with ID %d and name %s created\n", task.ID, task.Name)
-
-	task.Status = types.Processing
-	fmt.Printf("Task with ID %d and name %s started processing\n", task.ID, task.Name)
-
+	fmt.Printf("Task with ID %d and name '%s' added to the queue\n", task.ID, task.Name)
 	return nil
 }
 
@@ -49,16 +43,18 @@ func (c *Channel) Dequeue() (*task.Task, error) {
 		return nil, errors.New("channel not created yet")
 	}
 
-	t := <-c.chanel
-
-	c.wg.Done()
-
-	fmt.Printf("Task with ID %d and name %s finished the processing\n", t.ID, t.Name)
-
-	fmt.Printf("Queue size: %d\n", c.Size())
-	fmt.Printf("The queue got empty?: %t\n", c.IsEmpty())
+	t, ok := <-c.chanel
+	if !ok {
+		return nil, errors.New("channel closed")
+	}
 
 	return t, nil
+}
+
+func (c *Channel) TaskDone() {
+	if c.wg != nil {
+		c.wg.Done()
+	}
 }
 
 func (c *Channel) IsEmpty() bool {

@@ -26,7 +26,7 @@ func (m *Manager) NewFile(task *task.Task) error {
 		return errors.New("issue with the creating directory")
 	}
 
-	jsonData, err := json.MarshalIndent(task, "", "")
+	jsonData, err := json.MarshalIndent(task, "", "  ")
 	if err != nil {
 		return errors.New("issue with marshaling")
 	}
@@ -38,12 +38,10 @@ func (m *Manager) NewFile(task *task.Task) error {
 	if err != nil {
 		return errors.New("error with creating file")
 	}
+	defer file.Close()
 
 	_, err = file.Write(jsonData)
 	if err != nil {
-		if err := file.Close(); err != nil {
-			return errors.New("issue with a closing file")
-		}
 		return errors.New("issue with a writing data")
 	}
 
@@ -68,6 +66,10 @@ func (m *Manager) CreateTask(params *task.CreateTaskParams) (*task.Task, error) 
 }
 
 func (m *Manager) ListTasks() ([]*task.Task, error) {
+	if _, err := os.Stat(m.dirPath); os.IsNotExist(err) {
+		return nil, errors.New("no tasks found")
+	}
+
 	files, err := os.ReadDir(m.dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("%s", err)
@@ -122,17 +124,18 @@ func (m *Manager) UpdateTask(t *task.Task) error {
 	}
 
 	path := filepath.Join(m.dirPath, fmt.Sprintf("*_%d.json", t.ID))
-	file, err := matchFile(path, t.ID)
+	fileBytes, err := matchFile(path, t.ID)
 	if err != nil {
 		return fmt.Errorf("%s", err)
 	}
 
 	var existingTask task.Task
-	if err := json.Unmarshal(file, &existingTask); err != nil {
+	if err := json.Unmarshal(fileBytes, &existingTask); err != nil {
 		return fmt.Errorf("issue with an unmarshaling the task %d", t.ID)
 	}
 
-	existingTask.Status = types.Updated
+	existingTask.Status = t.Status
+	existingTask.Name = t.Name
 
 	updatedData, err := json.MarshalIndent(existingTask, "", "  ")
 	if err != nil {
@@ -149,7 +152,6 @@ func (m *Manager) UpdateTask(t *task.Task) error {
 	}
 
 	return nil
-
 }
 
 func matchFile(path string, taskID int) ([]byte, error) {
@@ -158,10 +160,10 @@ func matchFile(path string, taskID int) ([]byte, error) {
 		return nil, fmt.Errorf("file Task with ID %d not found", taskID)
 	}
 
-	file, err := os.ReadFile(matches[0])
+	fileBytes, err := os.ReadFile(matches[0])
 	if err != nil {
 		return nil, fmt.Errorf("file Task with ID %d not found", taskID)
 	}
 
-	return file, nil
+	return fileBytes, nil
 }
