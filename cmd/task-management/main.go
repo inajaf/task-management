@@ -42,8 +42,20 @@ func main() {
 	// local for implementing saving tasks data during the session
 	taskMng, _ := app.NewFileTaskManager("file", dir)
 
+	taskHandler := func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handlers.GetTasksHandler(taskMng, channel)(w, r)
+		case http.MethodPost:
+			handlers.PostTasksHandler(taskMng, channel, wg)(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
+
+	http.HandleFunc("/task", taskHandler)
+	http.HandleFunc("/task/create", taskHandler)
 	http.HandleFunc("/tasks", handlers.GetTasksHandler(taskMng, channel))
-	http.HandleFunc("/task/create", handlers.PostTasksHandler(taskMng, channel, wg))
 	http.HandleFunc("/tasks/", handlers.TaskByID(taskMng, channel))
 
 	// Run goroutine for Dequeue
